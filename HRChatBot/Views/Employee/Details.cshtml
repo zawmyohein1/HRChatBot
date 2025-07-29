@@ -1,0 +1,24 @@
+﻿@model HRChatBot.Models.Employee
+
+<h2>@Model.EmpName - Details</h2>
+<p><strong>Department:</strong> @Model.Department</p>
+<p><strong>Gender:</strong> @Model.Gender</p>
+<p><strong>Join Date:</strong> @Model.JoinDate.ToShortDateString()</p>
+
+<h4>Leave Records</h4>
+<table class="table">
+    <thead>
+        <tr><th>Type</th><th>Start</th><th>End</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+        @foreach (var leave in Model.Leaves)
+        {
+            <tr>
+                <td>@leave.LeaveType</td>
+                <td>@leave.StartDate.ToShortDateString()</td>
+                <td>@leave.EndDate.ToShortDateString()</td>
+                <td>@leave.Status</td>
+            </tr>
+        }
+    </tbody>
+</table>

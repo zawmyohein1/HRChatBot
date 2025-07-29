@@ -1,0 +1,118 @@
+﻿@{
+    ViewData["Title"] = "AI ChatBot";
+}
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+
+<style>
+    #chatLog {
+        height: 400px;
+        overflow-y: auto;
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+    }
+
+    .chat-bubble {
+        padding: 10px 15px;
+        border-radius: 20px;
+        margin-bottom: 10px;
+        max-width: 70%;
+    }
+
+    .user-msg {
+        background-color: #d1e7dd;
+        align-self: flex-end;
+        text-align: right;
+    }
+
+    .bot-msg {
+        background-color: #e2e3e5;
+        align-self: flex-start;
+    }
+</style>
+
+<div class="container mt-4">
+    <h2 class="mb-4">🤖 AI ChatBot</h2>
+
+    <div id="chatLog" class="d-flex flex-column mb-3 border shadow-sm"></div>
+
+    <div class="input-group">
+        <input type="text" id="chatInput" class="form-control" placeholder="Type your question..." />
+        <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+    </div>
+</div>
+
+<script>
+    const inputBox = document.getElementById("chatInput");
+
+    inputBox.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            sendMessage();
+        }
+    });
+
+    async function sendMessage() {
+        const input = inputBox.value.trim();
+        const chatLog = document.getElementById("chatLog");
+
+        if (!input) return;
+
+        appendMessage("You", input, "user-msg");
+        inputBox.value = "";
+
+        try {
+            const res = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: input })
+            });
+
+            const data = await res.json();
+            const reply = data.choices[0]?.message?.content ?? "No response.";
+
+            // Try parse as JSON and build table if structured
+            try {
+                const leaves = JSON.parse(reply);
+                if (Array.isArray(leaves)) {
+                    appendTableMessage("Bot", leaves);
+                } else {
+                    appendMessage("Bot", reply, "bot-msg");
+                }
+            } catch {
+                appendMessage("Bot", reply, "bot-msg");
+            }
+
+        } catch (err) {
+            appendMessage("Bot", `Error: ${err.message}`, "bot-msg text-danger");
+        }
+
+        chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function appendMessage(sender, text, className) {
+        const chatLog = document.getElementById("chatLog");
+        const msg = document.createElement("div");
+        msg.className = `chat-bubble ${className}`;
+        msg.innerHTML = `<strong>${sender}:</strong> ${text}`;
+        chatLog.appendChild(msg);
+    }
+
+    function appendTableMessage(sender, rows) {
+        const chatLog = document.getElementById("chatLog");
+        const container = document.createElement("div");
+        container.className = `chat-bubble bot-msg`;
+
+        let html = `<strong>${sender}:</strong><div class="table-responsive mt-2"><table class="table table-bordered table-sm">
+                    <thead><tr><th>Id</th><th>Type</th><th>From</th><th>To</th><th>Status</th></tr></thead><tbody>`;
+
+        for (const row of rows) {
+            html += `<tr><td>${row.id}</td><td>${row.type}</td><td>${row.startDate}</td><td>${row.endDate}</td><td>${row.status}</td></tr>`;
+        }
+
+        html += "</tbody></table></div>";
+        container.innerHTML = html;
+        chatLog.appendChild(container);
+    }
+</script>
+

@@ -1,0 +1,15 @@
+# Ignore user secrets and sensitive config
+appsettings.json
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+
+# Build files
+bin/
+obj/
+
+# Other
+*.log
+*.db

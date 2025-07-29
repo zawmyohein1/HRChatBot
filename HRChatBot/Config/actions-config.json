@@ -1,0 +1,18 @@
+{
+  "ShowLeave": {
+    "method": "GET",
+    "endpoint": "https://localhost:7063/api/leave/employee/{empId}"
+  },
+  "ApplyLeave": {
+    "method": "POST",
+    "endpoint": "https://localhost:7063/api/leave/employee/apply"
+  },
+  "CancelLeave": {
+    "method": "PUT",
+    "endpoint": "https://localhost:7063/api/leave/employee/cancel/{leaveId}"
+  },
+  "WithdrawLeave": {
+    "method": "PUT",
+    "endpoint": "https://localhost:7063/api/leave/employee/withdraw/{leaveId}"
+  }
+}
