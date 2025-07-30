@@ -1,18 +1,22 @@
 {
   "ShowLeave": {
     "method": "GET",
-    "endpoint": "https://localhost:7063/api/leave/employee/{empId}"
+    "endpoint": "https://localhost:7063/api/leave/{empId}"
   },
   "ApplyLeave": {
     "method": "POST",
-    "endpoint": "https://localhost:7063/api/leave/employee/apply"
+    "endpoint": "https://localhost:7063/api/leave/apply"
+  },
+  "ApproveLeave": {
+    "method": "PUT",
+    "endpoint": "https://localhost:7063/api/leave/approve"
   },
   "CancelLeave": {
     "method": "PUT",
-    "endpoint": "https://localhost:7063/api/leave/employee/cancel/{leaveId}"
+    "endpoint": "https://localhost:7063/api/leave/cancel/{leaveId}"
   },
   "WithdrawLeave": {
     "method": "PUT",
-    "endpoint": "https://localhost:7063/api/leave/employee/withdraw/{leaveId}"
+    "endpoint": "https://localhost:7063/api/leave/withdraw/{leaveId}"
   }
 }

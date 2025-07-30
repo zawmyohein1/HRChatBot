@@ -6,7 +6,7 @@ using HRChatBot.Models.Requests;
 
 namespace HRChatBot.Controllers.Api
 {
-    [Route("api/leave/employee")]
+    [Route("api/leave")]
     [ApiController]
     public class LeaveController : ControllerBase
     {
@@ -41,7 +41,7 @@ namespace HRChatBot.Controllers.Api
 
 
         [HttpPost("apply")]
-        public async Task<IActionResult> ApplyLeave([FromBody] LeaveRequest request)
+        public async Task<IActionResult> ApplyLeave([FromBody] ApplyLeaveRequest request)
         {
             if (request == null || request.EmpId <= 0 || string.IsNullOrWhiteSpace(request.LeaveType))
                 return BadRequest("Invalid leave request.");
@@ -51,7 +51,7 @@ namespace HRChatBot.Controllers.Api
             if (!validLeaveTypes.Contains(request.LeaveType, StringComparer.OrdinalIgnoreCase))
                 return BadRequest("Invalid leave type.");
 
-            if (request.FromDate > request.ToDate)
+            if (request.StartDate > request.EndDate)
                 return BadRequest("Start date cannot be after end date.");
 
             // Check for overlapping leave
@@ -60,9 +60,9 @@ namespace HRChatBot.Controllers.Api
                 l.Status != "Cancelled" &&
                 l.Status != "Withdrawn" &&
                 (
-                    (request.FromDate >= l.StartDate && request.FromDate <= l.EndDate) || // overlaps start
-                    (request.ToDate >= l.StartDate && request.ToDate <= l.EndDate) ||     // overlaps end
-                    (request.FromDate <= l.StartDate && request.ToDate >= l.EndDate)      // fully overlaps
+                    (request.StartDate >= l.StartDate && request.StartDate <= l.EndDate) || // overlaps start
+                    (request.EndDate >= l.StartDate && request.EndDate <= l.EndDate) ||     // overlaps end
+                    (request.StartDate <= l.StartDate && request.EndDate >= l.EndDate)      // fully overlaps
                 )
             );
 
@@ -73,8 +73,8 @@ namespace HRChatBot.Controllers.Api
             {
                 EmpId = request.EmpId,
                 LeaveType = request.LeaveType,
-                StartDate = request.FromDate,
-                EndDate = request.ToDate,
+                StartDate = request.StartDate,
+                EndDate = request.EndDate,
                 Status = "Pending",
                 CreatedAt = DateTime.UtcNow
             };
@@ -82,21 +82,30 @@ namespace HRChatBot.Controllers.Api
             _context.Leaves.Add(leave);
             await _context.SaveChangesAsync();
 
-            return Ok($"Leave applied for {request.LeaveType} from {request.FromDate:MMM dd} to {request.ToDate:MMM dd}.");
+            return Ok($"Leave applied for {request.LeaveType} from {request.StartDate:MMM dd} to {request.EndDate:MMM dd}.");
         }
 
 
-        [HttpPut("approve/{leaveId}")]
-        public async Task<IActionResult> ApproveLeave(int leaveId)
+        [HttpPut("approve")]
+        public IActionResult ApproveLeave([FromBody] ApproveLeaveRequest request)
         {
-            var leave = await _context.Leaves.FindAsync(leaveId);
+            var leave = _context.Leaves.FirstOrDefault(l =>
+                l.EmpId == request.EmpId &&
+                l.LeaveType == request.LeaveType &&
+                l.StartDate == request.StartDate &&
+                l.EndDate == request.EndDate);
+
             if (leave == null)
-                return NotFound("Leave record not found.");
+            {
+                return NotFound(new { message = "Leave record not found." });
+            }
 
             leave.Status = "Approved";
-            await _context.SaveChangesAsync();
-            return Ok("Leave has been approved.");
+            _context.SaveChanges();
+
+            return Ok(new { message = "Leave approved successfully." });
         }
+
 
         [HttpPut("cancel/{leaveId}")]
         public async Task<IActionResult> CancelLeave(int leaveId)

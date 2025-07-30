@@ -2,10 +2,9 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using Microsoft.Extensions.Logging;
 using HRChatBot.Services;
 using HRChatBot.Models.Requests;
+using HRChatBot.Utilities;
 
 namespace HRChatBot.Controllers
 {
@@ -28,10 +27,7 @@ namespace HRChatBot.Controllers
             _actionRouter = actionRouter;
         }
 
-        public IActionResult Index()
-        {
-            return View(); // This will look for Views/Chat/Index.cshtml
-        }
+        public IActionResult Index() => View();
 
         [HttpPost]
         public async Task<IActionResult> Post([FromBody] ChatRequest request)
@@ -44,59 +40,66 @@ namespace HRChatBot.Controllers
             var http = _httpClientFactory.CreateClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-            // Step 1: Classify intent
-            var classifierPrompt = _promptManager.GetPrompt("CommandClassifier", request.Message);
-            var classifyPayload = new
-            {
-                model = "gpt-3.5-turbo",
-                messages = new[] { new { role = "user", content = classifierPrompt } },
-                temperature = 0.2
-            };
-
             string actionType = null;
+
             try
             {
+                var classifierPrompt = _promptManager.GetPrompt("CommandClassifier", request.Message);
+                var classifyPayload = new
+                {
+                    model = "gpt-3.5-turbo",
+                    messages = new[] { new { role = "user", content = classifierPrompt } },
+                    temperature = 0.2
+                };
+
                 var classifyResponse = await http.PostAsync(endpoint, new StringContent(JsonSerializer.Serialize(classifyPayload), Encoding.UTF8, "application/json"));
                 var classifyJson = await classifyResponse.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(classifyJson);
-                var replyContent = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+                var replyContent = JsonDocument.Parse(classifyJson).RootElement
+                    .GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+
                 var parsed = JsonSerializer.Deserialize<ChatCommand>(replyContent);
                 actionType = parsed?.Action;
+
+                LogUtil.WriteLog($"[Classifier] UserInput: {request.Message}, Parsed Action: {actionType}");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to classify user message.");
+                _logger.LogError(ex, "Intent classification failed.");
+                LogUtil.WriteLog($"[Classifier Error] {ex.Message}");
                 return BuildBotResponse("Sorry, I couldn't understand your request.");
             }
 
             if (string.IsNullOrWhiteSpace(actionType) || actionType == "Unknown")
                 return BuildBotResponse("Sorry, I couldn't understand your request.");
 
-            // Step 2: Get detailed prompt & extract full parameters
-            var finalPrompt = _promptManager.GetPrompt(actionType, request.Message);
-            var finalPayload = new
-            {
-                model = "gpt-3.5-turbo",
-                messages = new[] { new { role = "user", content = finalPrompt } },
-                temperature = 0.2
-            };
-
             ChatCommand parsedCommand;
+
             try
             {
+                var finalPrompt = _promptManager.GetPrompt(actionType, request.Message);
+                var finalPayload = new
+                {
+                    model = "gpt-3.5-turbo",
+                    messages = new[] { new { role = "user", content = finalPrompt } },
+                    temperature = 0.2
+                };
+
                 var finalResponse = await http.PostAsync(endpoint, new StringContent(JsonSerializer.Serialize(finalPayload), Encoding.UTF8, "application/json"));
                 var resultJson = await finalResponse.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(resultJson);
-                var reply = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+
+                var reply = JsonDocument.Parse(resultJson).RootElement
+                    .GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+
                 parsedCommand = JsonSerializer.Deserialize<ChatCommand>(reply);
+                LogUtil.WriteLog($"[Parsed Command] JSON: {reply}");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to process final GPT request.");
+                _logger.LogError(ex, "Failed to extract detailed parameters.");
+                LogUtil.WriteLog($"[Command Parse Error] {ex.Message}");
                 return BuildBotResponse("Sorry, I couldn’t complete your request.");
             }
 
-            // Step 3: Dynamic API Routing
             try
             {
                 var routeInfo = _actionRouter.GetEndpoint(parsedCommand.Action);
@@ -105,47 +108,72 @@ namespace HRChatBot.Controllers
                     .Replace("{leaveId}", parsedCommand.LeaveId?.ToString() ?? "");
 
                 HttpResponseMessage response;
+                string payload = null;
+
                 switch (routeInfo.Method.ToUpper())
                 {
                     case "GET":
                         response = await http.GetAsync(resolvedUrl);
                         break;
+
                     case "POST":
-                        var postPayload = JsonSerializer.Serialize(new
+                    case "PUT":
+                        payload = JsonSerializer.Serialize(new
                         {
                             empId = parsedCommand.EmpId,
                             leaveType = parsedCommand.LeaveType,
-                            fromDate = parsedCommand.FromDate,
-                            toDate = parsedCommand.ToDate
+                            startDate = parsedCommand.StartDate,
+                            endDate = parsedCommand.EndDate
                         });
-                        response = await http.PostAsync(resolvedUrl, new StringContent(postPayload, Encoding.UTF8, "application/json"));
+
+                        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+                        response = routeInfo.Method.ToUpper() == "POST"
+                            ? await http.PostAsync(resolvedUrl, content)
+                            : await http.PutAsync(resolvedUrl, content);
                         break;
-                    case "PUT":
-                        response = await http.PutAsync(resolvedUrl, null);
-                        break;
+
                     default:
                         return BuildBotResponse("Unsupported method.");
                 }
 
                 var result = await response.Content.ReadAsStringAsync();
+                LogUtil.WriteLog($"[API CALL] Method: {routeInfo.Method}, URL: {resolvedUrl}, Payload: {payload}, Status: {response.StatusCode}");
                 return BuildBotResponse(result);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to call routed API.");
+                LogUtil.WriteLog($"[API Call Error] {ex.Message}");
                 return BuildBotResponse("Sorry, something went wrong while calling internal services.");
             }
-        }
+        }      
 
         private IActionResult BuildBotResponse(string message)
         {
+            string displayMessage = message;
+
+            try
+            {
+                using var jsonDoc = JsonDocument.Parse(message);
+                if (jsonDoc.RootElement.TryGetProperty("message", out JsonElement msgElement))
+                {
+                    displayMessage = msgElement.GetString();
+                }
+            }
+            catch
+            {
+                // message is plain text, not JSON — leave as is
+            }
+
             return Ok(new
             {
                 choices = new[]
                 {
-                    new { message = new { content = message } }
-                }
+            new { message = new { content = displayMessage } }
+        }
             });
         }
-    }  
+
+    }
 }
